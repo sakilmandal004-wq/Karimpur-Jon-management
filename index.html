@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GMDS | Unified Zone Management & Dispatch Center</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'] },
+                    colors: {
+                        primary: '#10b981',
+                        primary_dark: '#047857',
+                        dark: '#0f172a',
+                        accent: '#f59e0b',
+                        background: '#f8fafc'
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        select {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 0.7rem center;
+            background-size: 1em;
+        }
+
+        @keyframes slideIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-slide-in { animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+        @keyframes highlightNew {
+            0% { background-color: #dcfce7; }
+            100% { background-color: transparent; }
+        }
+        .new-order-row { animation: highlightNew 4s ease-out forwards; border-left: 4px solid #10b981 !important; }
+        .cancelled-row { background-color: #fff1f2 !important; border-left: 4px solid #ef4444 !important; opacity: 0.85; }
+        .completed-row { border-left: 4px solid #10b981 !important; opacity: 0.7; }
+        .focused-order { animation: highlightNew 6s infinite alternate; border: 2px solid #2563eb !important; }
+        
+        textarea:focus { outline: none; border-color: #25D366; box-shadow: 0 0 0 4px rgba(37, 211, 102, 0.15); }
+    </style>
+</head>
+<body class="bg-background text-slate-800 font-sans min-h-screen flex flex-col">
+
+    <!-- Sound Alert -->
+    <audio id="orderAlertSound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
+
+    <!-- Toast Notifications Container -->
+    <div id="toast-container" class="fixed top-5 right-5 z-[100000] pointer-events-none flex flex-col gap-3"></div>
+
+    <!-- Zone Lock Modal (First-time Login / Zone Setup) -->
+    <div id="zone-login-modal" class="fixed inset-0 bg-slate-900/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-3xl p-8 shadow-2xl text-center border border-slate-200 animate-slide-in">
+            <div class="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center text-3xl mx-auto mb-4 shadow-inner">
+                <i class="fas fa-shield-halved"></i>
+            </div>
+            <h2 class="text-xl font-black text-slate-800 m-0 mb-1">Zone Manager Access</h2>
+            <p class="text-xs text-slate-500 font-semibold mb-6">Zero-Firebase Direct Backend Connection</p>
+            
+            <div class="space-y-4 text-left">
+                <div>
+                    <label class="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-2">Backend Server URL</label>
+                    <input type="url" id="backend-url-input" class="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-3.5 text-xs font-mono font-bold text-slate-700 outline-none focus:border-emerald-500" placeholder="https://your-secondary-server.onrender.com">
+                </div>
+
+                <div>
+                    <label class="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-2">Select Operational Zone ID</label>
+                    <select id="manager-zone-select" class="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-700 outline-none focus:border-emerald-500">
+                        <option value="Jon1">Zone 1 (Jon1)</option>
+                        <option value="Jon2">Zone 2 (Jon2)</option>
+                        <option value="Jon3">Zone 3 (Jon3)</option>
+                        <option value="Jon4">Zone 4 (Jon4)</option>
+                        <option value="Jon5">Zone 5 (Jon5)</option>
+                        <option value="Jon6">Zone 6 (Jon6)</option>
+                        <option value="Fazilnagar">Fazilnagar (Direct)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-2">Zone Security PIN / Token</label>
+                    <input type="password" id="manager-token-input" placeholder="Enter your Zone PIN" class="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-700 outline-none focus:border-emerald-500">
+                </div>
+
+                <button onclick="authenticateManager()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-4 rounded-2xl text-sm uppercase tracking-wider shadow-lg shadow-emerald-600/30 transition-all cursor-pointer border-none mt-2">
+                    Unlock Zone Panel <i class="fas fa-arrow-right ml-2"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rider Assign Modal -->
+    <div id="assign-rider-modal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 animate-slide-in">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3 mb-4">
+                <div>
+                    <h3 class="font-extrabold text-base text-slate-800 m-0">Assign Delivery Partner</h3>
+                    <p class="text-[11px] text-slate-400 font-bold m-0 mt-0.5" id="assign-order-lbl">Order #--</p>
+                </div>
+                <button onclick="closeAssignModal()" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-500 flex items-center justify-center border-none cursor-pointer">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-[10px] font-black uppercase text-slate-500 mb-1">Rider Name</label>
+                    <input type="text" id="assign-rider-name" placeholder="E.g. Sujon Mia" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-black uppercase text-slate-500 mb-1">Rider 10-Digit WhatsApp Phone</label>
+                    <input type="tel" id="assign-rider-phone" placeholder="E.g. 9876543210" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-black uppercase text-slate-500 mb-1">Vehicle Type</label>
+                    <select id="assign-rider-vehicle" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-emerald-500">
+                        <option value="Bike">🏍️ Bike</option>
+                        <option value="E-Rickshaw (Toto)">🛺 E-Rickshaw (Toto)</option>
+                        <option value="Cycle">🚲 Cycle</option>
+                    </select>
+                </div>
+                <button onclick="submitRiderAssignment()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3.5 rounded-xl text-xs uppercase tracking-wider shadow-md transition-all cursor-pointer border-none mt-2">
+                    <i class="fas fa-check-circle mr-1"></i> Save & Assign Rider
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- WhatsApp Dispatch Preview Modal -->
+    <div id="wa-preview-modal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] animate-slide-in border border-slate-200">
+            <div class="bg-slate-50 p-5 flex items-center justify-between border-b border-slate-200">
+                <div class="flex items-center gap-3">
+                    <div class="w-12 h-12 rounded-full bg-[#25D366]/10 flex items-center justify-center border border-[#25D366]/20">
+                        <i class="fab fa-whatsapp text-[#25D366] text-2xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-extrabold text-base text-slate-800 tracking-wide m-0">WhatsApp Dispatcher</h3>
+                        <p class="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-0.5 m-0">Smart Routing Engine</p>
+                    </div>
+                </div>
+                <button onclick="closeWaModal()" class="w-10 h-10 rounded-full bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-500 transition-colors flex items-center justify-center cursor-pointer border-none">
+                    <i class="fas fa-times text-lg"></i>
+                </button>
+            </div>
+            <div class="p-6 bg-white flex-1 overflow-hidden flex flex-col gap-3">
+                <div class="bg-blue-50 border border-blue-100 text-blue-700 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between">
+                    <span><i class="fas fa-satellite-dish animate-pulse mr-1"></i> Formatted via Secondary Backend</span>
+                    <span class="font-mono text-[10px] bg-blue-200 px-2 py-0.5 rounded text-blue-800" id="wa-target-label">Target: Rider</span>
+                </div>
+                <textarea id="wa-text-preview" class="w-full flex-1 min-h-[260px] p-5 text-[13px] font-mono bg-slate-50 text-slate-700 border-2 border-slate-200 rounded-2xl resize-none shadow-inner leading-relaxed" spellcheck="false"></textarea>
+            </div>
+            <div class="p-5 bg-slate-50 border-t border-slate-200 flex gap-3 shrink-0">
+                <button onclick="copyWaText()" class="w-1/3 py-4 bg-white border-2 border-slate-200 text-slate-700 rounded-2xl text-sm font-extrabold transition-all hover:bg-slate-100 flex justify-center items-center gap-2 cursor-pointer">
+                    <i class="fas fa-copy text-slate-400"></i> Copy Text
+                </button>
+                <button id="btn-wa-direct" class="w-2/3 py-4 bg-[#25D366] text-white rounded-2xl text-sm font-black uppercase tracking-wider transition-all shadow-lg shadow-[#25D366]/30 hover:bg-[#20b958] flex justify-center items-center gap-2 cursor-pointer border-none">
+                    <i class="fab fa-whatsapp text-xl"></i> Send To Rider WhatsApp
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="bg-dark text-white sticky top-0 z-40 shadow-xl border-b border-white/10">
+        <div class="max-w-[98%] mx-auto px-4 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-primary_dark flex items-center justify-center shadow-inner border border-white/20 relative">
+                    <i class="fas fa-satellite-dish text-2xl text-white"></i>
+                    <div class="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full border-2 border-dark animate-pulse"></div>
+                </div>
+                <div>
+                    <h1 class="text-lg font-black tracking-wider text-white m-0 leading-tight">GMDS ZONE COMMAND</h1>
+                    <p class="text-[10px] text-emerald-400 font-bold tracking-widest uppercase m-0 mt-0.5 flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Locked Zone: <span id="header-zone-label" class="text-amber-300 font-black px-1.5 py-0.5 bg-white/10 rounded">--</span>
+                    </p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <div class="text-right mr-2 hidden md:block border-r border-slate-700 pr-5">
+                    <p class="text-[9px] text-slate-400 font-bold uppercase tracking-wider m-0">System Time</p>
+                    <p class="text-sm font-mono text-emerald-300 font-bold m-0" id="live-clock">--:--:--</p>
+                </div>
+                <button onclick="fetchZoneOrders(true)" class="bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 px-3.5 py-2.5 rounded-xl font-bold text-xs transition-colors cursor-pointer">
+                    <i class="fas fa-rotate"></i> Sync
+                </button>
+                <button onclick="logoutManager()" class="bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30 px-4 py-2.5 rounded-xl font-bold text-xs transition-colors cursor-pointer">
+                    <i class="fas fa-right-from-bracket mr-1"></i> Switch Zone
+                </button>
+            </div>
+        </div>
+
+        <!-- Stats Bar -->
+        <div class="border-t border-white/10 px-4 py-2.5 flex items-center justify-around text-center bg-slate-900/50">
+            <div><p class="text-[9px] text-slate-400 font-bold uppercase m-0">Zone Orders</p><p class="text-sm font-black text-white m-0" id="stat-total">0</p></div>
+            <div><p class="text-[9px] text-amber-400/80 font-bold uppercase m-0">Pending</p><p class="text-sm font-black text-amber-400 m-0" id="stat-pending">0</p></div>
+            <div><p class="text-[9px] text-blue-400/80 font-bold uppercase m-0">PickedUp / Active</p><p class="text-sm font-black text-blue-400 m-0" id="stat-dispatched">0</p></div>
+            <div><p class="text-[9px] text-emerald-400/80 font-bold uppercase m-0">Delivered</p><p class="text-sm font-black text-emerald-400 m-0" id="stat-delivered">0</p></div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-[98%] w-full mx-auto px-2 py-6">
+        <div class="bg-white rounded-3xl shadow-md border border-slate-200 overflow-hidden flex flex-col h-[calc(100vh-145px)]">
+            
+            <!-- Filter Bar -->
+            <div class="px-6 py-4 border-b border-slate-100 flex flex-col lg:flex-row items-center justify-between gap-4 bg-slate-50 shrink-0">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center border border-emerald-200 shadow-sm">
+                        <i class="fas fa-boxes-packing"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-base font-black text-slate-800 m-0 leading-tight">Unified Zone Stream <span class="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-black uppercase ml-1" id="sync-status-badge">Protected API</span></h2>
+                        <p class="text-[10px] text-slate-500 font-extrabold mt-0.5 m-0 uppercase tracking-wide">Food • Parcel • Ride • Seba • House</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-1.5 bg-slate-200/50 p-1.5 rounded-xl border border-slate-200 overflow-x-auto max-w-full" id="filter-bar">
+                    <button class="filter-btn px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap active bg-white shadow-sm text-slate-800" data-filter="all">All <span id="fc-all" class="opacity-60"></span></button>
+                    <button class="filter-btn px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap text-slate-500 hover:bg-white/50" data-filter="pending">Pending <span id="fc-pending" class="opacity-60"></span></button>
+                    <button class="filter-btn px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap text-slate-500 hover:bg-white/50" data-filter="active">Active / PickedUp <span id="fc-active" class="opacity-60"></span></button>
+                    <button class="filter-btn px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap text-slate-500 hover:bg-white/50" data-filter="delivered">Delivered <span id="fc-delivered" class="opacity-60"></span></button>
+                    <button class="filter-btn px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap text-slate-500 hover:bg-white/50" data-filter="cancelled">Cancelled <span id="fc-cancelled" class="opacity-60"></span></button>
+                </div>
+            </div>
+
+            <!-- Orders Table -->
+            <div class="overflow-auto flex-1 bg-white p-2">
+                <table class="w-full text-left border-collapse whitespace-nowrap lg:whitespace-normal">
+                    <thead class="sticky top-0 z-10 bg-slate-100/90 backdrop-blur-sm rounded-xl">
+                        <tr class="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                            <th class="py-4 px-5 rounded-tl-xl w-40">Order ID & Time</th>
+                            <th class="py-4 px-5">Customer & Address</th>
+                            <th class="py-4 px-5">Service / Items</th>
+                            <th class="py-4 px-5 w-48">Bill & Delivery Fee</th>
+                            <th class="py-4 px-5 w-52 text-center">Live Status & Rider</th>
+                            <th class="py-4 px-5 text-center w-44 rounded-tr-xl">Dispatch / Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="managerOrdersTable" class="divide-y divide-slate-100 text-sm">
+                        <tr>
+                            <td colspan="6" class="py-24 text-center">
+                                <i class="fas fa-circle-notch fa-spin text-4xl text-emerald-600 mb-4 block"></i>
+                                <h3 class="text-slate-800 font-black text-lg m-0">Waiting for Zone Authentication...</h3>
+                                <p class="text-slate-400 font-bold text-xs mt-1">Select your Zone ID (e.g. Jon1, Jon5) to begin</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // ==================== URL PARAMS (Telegram Deep-Link Support) ====================
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlZone = urlParams.get('zone');
+        const highlightOrderId = urlParams.get('orderId');
+
+        const DEFAULT_BACKEND = "https://gmds-super-app-2-o-1.onrender.com";
+        let BACKEND_URL = localStorage.getItem('gmds_manager_backend') || DEFAULT_BACKEND;
+        let currentZone = urlZone || localStorage.getItem('gmds_manager_zone') || '';
+        let managerToken = localStorage.getItem('gmds_manager_token') || '';
+
+        let activeOrdersCache = [];
+        const knownOrderIds = new Set();
+        let firstLoadComplete = false;
+        let currentFilter = 'all';
+        let assigningOrder = null;
+
+        const RIDER_WA_DEFAULT = "916297474412";
+        const STATUS_OPTIONS = ['Pending', 'Confirmed', 'Accepted', 'PickedUp', 'Out for Delivery', 'Delivered', 'Cancelled'];
+
+        const esc = v => String(v === undefined || v === null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+        setInterval(() => {
+            document.getElementById('live-clock').innerText = new Date().toLocaleTimeString('en-IN', { hour12: true });
+        }, 1000);
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const bgClass = type === 'error' ? 'bg-red-600' : 'bg-slate-800';
+            const icon = type === 'error' ? 'fa-triangle-exclamation text-red-200' : 'fa-check-circle text-emerald-400';
+            toast.className = `${bgClass} text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 text-xs font-bold transition-all duration-300 border border-white/10`;
+            toast.innerHTML = `<i class="fas ${icon} text-lg"></i> <span>${esc(message)}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 3500);
+        }
+
+        function playAlertSound() {
+            const audio = document.getElementById('orderAlertSound');
+            if (audio) { audio.currentTime = 0; audio.play().catch(() => {}); }
+        }
+
+        document.body.addEventListener('click', () => {
+            const a = document.getElementById('orderAlertSound');
+            if (a) { a.muted = true; a.play().then(() => { a.pause(); a.currentTime = 0; a.muted = false; }).catch(() => { a.muted = false; }); }
+        }, { once: true });
+
+        // ==================== DYNAMIC ZONES FETCH FROM BACKEND ====================
+        async function loadAvailableZones() {
+            document.getElementById('backend-url-input').value = BACKEND_URL;
+            try {
+                const res = await fetch(`${BACKEND_URL}/api/manager/zones`);
+                const data = await res.json();
+                if (data.status === 'success' && Array.isArray(data.zones) && data.zones.length > 0) {
+                    const select = document.getElementById('manager-zone-select');
+                    select.innerHTML = data.zones.map(z => `<option value="${esc(z.id)}">${esc(z.label)}</option>`).join('');
+                    if (currentZone) select.value = currentZone;
+                }
+            } catch (e) {
+                console.log("Using default Jon1-Jon6 list");
+            }
+        }
+
+        // ==================== AUTHENTICATION & ZONE LOCK ====================
+        function checkManagerAuth() {
+            loadAvailableZones();
+            if (currentZone && managerToken) {
+                document.getElementById('zone-login-modal').style.display = 'none';
+                document.getElementById('header-zone-label').innerText = currentZone;
+                startPollingOrders();
+            } else {
+                if (urlZone) document.getElementById('manager-zone-select').value = urlZone;
+                document.getElementById('zone-login-modal').style.display = 'flex';
+            }
+        }
+
+        window.authenticateManager = function() {
+            const bUrl = document.getElementById('backend-url-input').value.trim().replace(/\/+$/, '');
+            const zone = document.getElementById('manager-zone-select').value;
+            const token = document.getElementById('manager-token-input').value.trim();
+
+            if (!bUrl || !token) {
+                showToast("Please enter Backend URL and Zone Security PIN!", "error");
+                return;
+            }
+
+            BACKEND_URL = bUrl;
+            currentZone = zone;
+            managerToken = token;
+
+            localStorage.setItem('gmds_manager_backend', BACKEND_URL);
+            localStorage.setItem('gmds_manager_zone', zone);
+            localStorage.setItem('gmds_manager_token', token);
+
+            checkManagerAuth();
+        };
+
+        window.logoutManager = function() {
+            localStorage.removeItem('gmds_manager_zone');
+            localStorage.removeItem('gmds_manager_token');
+            window.location.href = window.location.pathname;
+        };
+
+        // ==================== SECURE BACKEND API POLLING ====================
+        async function fetchZoneOrders(manual = false) {
+            if (!currentZone || !managerToken) return;
+            const badge = document.getElementById('sync-status-badge');
+            if (manual && badge) badge.innerText = "Syncing...";
+
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/manager/orders?zone=${encodeURIComponent(currentZone)}`, {
+                    method: 'GET',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'x-manager-token': managerToken,
+                        'x-manager-zone': currentZone
+                    }
+                });
+
+                if (response.status === 401 || response.status === 403) {
+                    showToast("Invalid Zone PIN! Please login again.", "error");
+                    logoutManager();
+                    return;
+                }
+
+                const result = await response.json();
+                if (result.status === 'success' && Array.isArray(result.orders)) {
+                    if (badge) badge.innerText = "Live Connected";
+                    processOrdersData(result.orders);
+                    if (manual) showToast(`Synced ${result.orders.length} orders for ${currentZone}`);
+                }
+            } catch (err) {
+                if (badge) badge.innerText = "Reconnecting...";
+                console.error("Backend sync error:", err);
+            }
+        }
+
+        let pollInterval = null;
+        function startPollingOrders() {
+            fetchZoneOrders();
+            if (pollInterval) clearInterval(pollInterval);
+            pollInterval = setInterval(() => fetchZoneOrders(false), 5000);
+        }
+
+        // ==================== DATA PROCESSING & RENDERING ====================
+        function processOrdersData(orders) {
+            let newFound = 0;
+            orders.forEach(o => {
+                const uid = (o.dbRefType || 'core') + ':' + (o.orderId || o.id);
+                if (!knownOrderIds.has(uid)) {
+                    knownOrderIds.add(uid);
+                    if (firstLoadComplete) newFound++;
+                }
+            });
+            firstLoadComplete = true;
+
+            if (newFound > 0) {
+                playAlertSound();
+                showToast(`🔔 ${newFound} New Order(s) in ${currentZone}!`);
+            }
+
+            activeOrdersCache = orders;
+            updateStats(orders);
+            renderOrdersTable();
+        }
+
+        function statusKey(order) {
+            const st = String(order.status || order.riderStatus || 'Pending').toLowerCase();
+            if (st.includes('cancel') || order.isCancelled) return 'cancelled';
+            if (['delivered', 'completed', 'done'].includes(st)) return 'delivered';
+            if (['accepted', 'pickedup', 'out for delivery', 'confirmed'].includes(st)) return 'active';
+            return 'pending';
+        }
+
+        function updateStats(orders) {
+            document.getElementById('stat-total').innerText = orders.length;
+            document.getElementById('stat-pending').innerText = orders.filter(o => statusKey(o) === 'pending').length;
+            document.getElementById('stat-dispatched').innerText = orders.filter(o => statusKey(o) === 'active').length;
+            document.getElementById('stat-delivered').innerText = orders.filter(o => statusKey(o) === 'delivered').length;
+
+            ['all', 'pending', 'active', 'delivered', 'cancelled'].forEach(f => {
+                const el = document.getElementById('fc-' + f);
+                if (el) el.innerText = `(${orders.filter(o => f === 'all' ? true : statusKey(o) === f).length})`;
+            });
+        }
+
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', e => {
+                document.querySelectorAll('.filter-btn').forEach(b => {
+                    b.className = "filter-btn px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap text-slate-500 hover:bg-white/50";
+                });
+                e.currentTarget.className = "filter-btn px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap active bg-white shadow-sm text-slate-800";
+                currentFilter = e.currentTarget.getAttribute('data-filter');
+                renderOrdersTable();
+            });
+        });
+
+        function renderOrdersTable() {
+            const tbody = document.getElementById('managerOrdersTable');
+            const filtered = activeOrdersCache.filter(o => currentFilter === 'all' ? true : statusKey(o) === currentFilter);
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="py-16 text-center text-slate-400 font-bold"><div class="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3"><i class="fas fa-box-open text-3xl"></i></div> No orders found for ${esc(currentZone)} in this tab.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = filtered.map((order, idx) => {
+                const oId = String(order.orderId || order.id);
+                const dbType = order.dbRefType || 'core';
+                const dbPath = order.dbPath || 'all_orders';
+                const status = order.status || order.riderStatus || 'Pending';
+                const sk = statusKey(order);
+                const d = order.details || {};
+
+                // Service & Item Details
+                let badgeHtml = `<span class="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-100 text-emerald-700">FOOD</span>`;
+                let detailsHtml = '';
+
+                if (Array.isArray(order.items) && order.items.length > 0) {
+                    detailsHtml = order.items.map(it => `<div class="text-[11px] font-bold text-slate-700">• ${esc(it.name)} × ${esc(it.qty)} <span class="text-slate-400">(${esc(it.hotel || 'Hotel')})</span></div>`).join('');
+                } else if (d.type || dbPath === 'delivery_orders') {
+                    const isParcel = String(d.type || '').toLowerCase().includes('parcel');
+                    badgeHtml = `<span class="px-2 py-0.5 rounded text-[10px] font-black uppercase ${isParcel ? 'bg-blue-100 text-blue-700' : 'bg-indigo-100 text-indigo-700'}">${esc(d.type || 'Ride/Parcel')}</span>`;
+                    detailsHtml = `
+                        <div class="text-[11px] text-slate-700 font-semibold">🟢 Pickup: ${esc(d.pickup || 'N/A')}</div>
+                        <div class="text-[11px] text-slate-700 font-semibold">🔴 Drop: ${esc(d.drop || 'N/A')}</div>
+                        <div class="text-[10px] text-blue-600 font-bold mt-0.5">🛣️ ${esc(d.distance || '')} ${d.vehicle ? '• 🛵 ' + esc(d.vehicle) : ''}</div>
+                    `;
+                } else {
+                    badgeHtml = `<span class="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-purple-100 text-purple-700">${esc(dbPath.replace('_', ' '))}</span>`;
+                    detailsHtml = `<div class="text-[11px] text-slate-700 font-bold">${esc(order.service || order.problem || 'Service Booking')}</div>`;
+                }
+
+                // Financial Breakdown (Order Value + Delivery Charge)
+                const subtotal = order.subtotal !== undefined ? Number(order.subtotal) : null;
+                const delFee = order.deliveryFee !== undefined ? Number(order.deliveryFee) : null;
+                const grandTotal = pickVal(order.grandTotal, d.totalFare, order.price, order.total, 0);
+
+                let financeHtml = `<div class="text-base font-black text-slate-800">Total: ₹${esc(grandTotal)}</div>`;
+                if (subtotal !== null && delFee !== null) {
+                    financeHtml = `
+                        <div class="text-[11px] font-bold text-slate-500">Item Value: <b class="text-slate-700">₹${esc(subtotal)}</b></div>
+                        <div class="text-[11px] font-bold text-slate-500">Delivery Charge: <b class="text-blue-600">₹${esc(delFee)}</b></div>
+                        <div class="text-sm font-black text-emerald-700 border-t border-slate-200 pt-1 mt-1">Grand Total: ₹${esc(grandTotal)}</div>
+                    `;
+                }
+
+                // Rider Info
+                const rName = order.riderName || '';
+                const rPhone = order.riderPhone || '';
+                const riderBadge = rName
+                    ? `<div class="mt-2 bg-indigo-50 border border-indigo-200 rounded-xl p-1.5 text-center">
+                         <div class="text-[10px] font-black text-indigo-800"><i class="fas fa-motorcycle mr-1"></i>${esc(rName)}</div>
+                         <div class="text-[9px] font-bold text-indigo-600">${esc(rPhone)}</div>
+                       </div>`
+                    : `<button onclick="openAssignModal(${idx})" class="mt-2 w-full bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-600 border border-dashed border-slate-300 rounded-xl py-1 text-[10px] font-extrabold cursor-pointer transition-colors"><i class="fas fa-user-plus mr-1"></i>Assign Rider</button>`;
+
+                const isHighlighted = highlightOrderId && String(highlightOrderId) === oId;
+                let rowCls = "hover:bg-slate-50 transition-colors border-b border-slate-100 ";
+                if (sk === 'cancelled') rowCls += "cancelled-row ";
+                else if (sk === 'delivered') rowCls += "completed-row ";
+                if (isHighlighted) rowCls += "focused-order ";
+
+                const mapUrl = order.gpsLocation && String(order.gpsLocation).startsWith('http') ? order.gpsLocation : (order.location && String(order.location).startsWith('http') ? order.location : '');
+
+                return `
+                    <tr class="${rowCls}" id="order-row-${esc(oId)}">
+                        <td class="py-4 px-5 align-top">
+                            <div class="font-mono text-sm font-black text-slate-800">#${esc(oId)}</div>
+                            <div class="text-[10px] text-slate-400 mt-1 font-bold"><i class="far fa-clock"></i> ${esc(order.time || order.timestamp || 'Live')}</div>
+                            <span class="inline-block mt-1.5 text-[9px] font-black bg-slate-100 text-slate-600 px-2 py-0.5 rounded uppercase">Zone: ${esc(order.serviceZone || d.zone || currentZone)}</span>
+                        </td>
+                        <td class="py-4 px-5 align-top">
+                            <div class="font-extrabold text-sm text-slate-800">${esc(order.user || order.customer || 'Customer')}</div>
+                            <a href="tel:${esc(order.phone)}" class="text-xs font-bold text-blue-600 hover:underline mt-0.5 inline-flex items-center gap-1"><i class="fas fa-phone-alt text-[10px]"></i> ${esc(order.phone || 'N/A')}</a>
+                            <div class="text-[11px] text-slate-600 font-medium mt-1 max-w-xs whitespace-normal">${esc(order.address || d.pickup || '')}</div>
+                            ${mapUrl ? `<a href="${esc(mapUrl)}" target="_blank" class="inline-flex items-center gap-1 text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded mt-1 no-underline"><i class="fas fa-location-dot"></i> Open GPS Map</a>` : ''}
+                        </td>
+                        <td class="py-4 px-5 align-top whitespace-normal max-w-xs">
+                            <div class="mb-1.5">${badgeHtml}</div>
+                            ${detailsHtml}
+                        </td>
+                        <td class="py-4 px-5 align-top">
+                            ${financeHtml}
+                            <span class="inline-block mt-1 text-[9px] px-2 py-0.5 rounded font-black uppercase bg-amber-50 text-amber-700 border border-amber-200">${esc(order.payMode || 'COD')}</span>
+                        </td>
+                        <td class="py-4 px-5 align-top text-center">
+                            <select onchange="updateOrderStatus(${idx}, this.value)" class="w-full bg-white border-2 border-slate-200 rounded-xl text-[11px] font-bold px-3 py-2 outline-none cursor-pointer focus:border-emerald-500">
+                                ${STATUS_OPTIONS.map(opt => `<option value="${esc(opt)}" ${opt.toLowerCase() === status.toLowerCase() ? 'selected' : ''}>${esc(opt.toUpperCase())}</option>`).join('')}
+                            </select>
+                            ${riderBadge}
+                        </td>
+                        <td class="py-4 px-5 align-top text-center space-y-1.5">
+                            <button onclick="previewWhatsApp(${idx})" class="w-full bg-[#25D366] text-white px-3 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm hover:bg-[#20b958] cursor-pointer border-none">
+                                <i class="fab fa-whatsapp text-sm"></i> Send Rider WA
+                            </button>
+                            <button onclick="openAssignModal(${idx})" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl font-bold text-[10px] uppercase flex items-center justify-center gap-1.5 cursor-pointer border-none">
+                                <i class="fas fa-motorcycle"></i> Change Rider
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function pickVal(...args) {
+            return args.find(x => x !== undefined && x !== null && x !== '');
+        }
+
+        // ==================== STATUS & RIDER UPDATE VIA BACKEND ====================
+        window.updateOrderStatus = async function(idx, newStatus) {
+            const order = activeOrdersCache.filter(o => currentFilter === 'all' ? true : statusKey(o) === currentFilter)[idx];
+            if (!order) return;
+
+            try {
+                const res = await fetch(`${BACKEND_URL}/api/manager/update-status`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json', 
+                        'x-manager-token': managerToken,
+                        'x-manager-zone': currentZone
+                    },
+                    body: JSON.stringify({ 
+                        orderId: order.orderId || order.id, 
+                        dbRefType: order.dbRefType || 'core',
+                        dbPath: order.dbPath || 'all_orders',
+                        status: newStatus, 
+                        zone: currentZone 
+                    })
+                });
+                const result = await res.json();
+                if (result.status === 'success') {
+                    showToast(`Order #${order.orderId || order.id} ➔ ${newStatus}`);
+                    fetchZoneOrders();
+                } else {
+                    showToast(result.message || "Failed to update status", "error");
+                }
+            } catch (e) {
+                showToast("Network error updating status", "error");
+            }
+        };
+
+        window.openAssignModal = function(idx) {
+            const order = activeOrdersCache.filter(o => currentFilter === 'all' ? true : statusKey(o) === currentFilter)[idx];
+            if (!order) return;
+            assigningOrder = order;
+            document.getElementById('assign-order-lbl').innerText = `Order #${order.orderId || order.id} (${currentZone})`;
+            document.getElementById('assign-rider-name').value = order.riderName || '';
+            document.getElementById('assign-rider-phone').value = order.riderPhone || '';
+            document.getElementById('assign-rider-modal').classList.remove('hidden');
+        };
+
+        window.closeAssignModal = function() {
+            document.getElementById('assign-rider-modal').classList.add('hidden');
+            assigningOrder = null;
+        };
+
+        window.submitRiderAssignment = async function() {
+            if (!assigningOrder) return;
+            const rName = document.getElementById('assign-rider-name').value.trim();
+            const rPhone = document.getElementById('assign-rider-phone').value.trim().replace(/\D/g, '').slice(-10);
+            const rVeh = document.getElementById('assign-rider-vehicle').value;
+
+            if (!rName || rPhone.length !== 10) {
+                showToast("Enter valid Rider Name and 10-digit Phone!", "error");
+                return;
+            }
+
+            try {
+                const res = await fetch(`${BACKEND_URL}/api/manager/update-status`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json', 
+                        'x-manager-token': managerToken,
+                        'x-manager-zone': currentZone
+                    },
+                    body: JSON.stringify({
+                        orderId: assigningOrder.orderId || assigningOrder.id,
+                        dbRefType: assigningOrder.dbRefType || 'core',
+                        dbPath: assigningOrder.dbPath || 'all_orders',
+                        status: 'Accepted',
+                        riderName: rName,
+                        riderPhone: rPhone,
+                        riderVehicle: rVeh,
+                        zone: currentZone
+                    })
+                });
+                const result = await res.json();
+                if (result.status === 'success') {
+                    showToast(`Rider ${rName} assigned!`);
+                    closeAssignModal();
+                    fetchZoneOrders();
+                } else {
+                    showToast(result.message || "Could not assign rider", "error");
+                }
+            } catch (e) {
+                showToast("Network error assigning rider", "error");
+            }
+        };
+
+        // ==================== WHATSAPP DISPATCHER ====================
+        window.previewWhatsApp = function(idx) {
+            const order = activeOrdersCache.filter(o => currentFilter === 'all' ? true : statusKey(o) === currentFilter)[idx];
+            if (!order) return;
+
+            const d = order.details || {};
+            const oId = order.orderId || order.id;
+            const items = Array.isArray(order.items) ? order.items : [];
+            const grandTotal = pickVal(order.grandTotal, d.totalFare, order.price, order.total, 0);
+
+            let text = `*🚀 GMDS DISPATCH - [${currentZone}]*\n`;
+            text += `-----------------------------------\n`;
+            text += `*🆔 Order ID:* ${oId}\n`;
+            text += `*👤 Customer:* ${order.user || order.customer || 'N/A'}\n`;
+            text += `*📞 Phone:* ${order.phone || 'N/A'}\n`;
+
+            if (items.length > 0) {
+                text += `*🏠 Address:* ${order.address || 'N/A'}\n`;
+                if (order.gpsLocation) text += `*📍 GPS Map:* ${order.gpsLocation}\n`;
+                text += `-----------------------------------\n*🛒 Items:*\n`;
+                items.forEach(it => {
+                    text += `• *${it.name}* (${it.qty} × ₹${it.price}) - _${it.hotel || 'Hotel'}_\n`;
+                });
+                text += `-----------------------------------\n`;
+                text += `*💵 Item Value:* ₹${order.subtotal || 0}\n`;
+                text += `*🛵 Delivery Charge:* ₹${order.deliveryFee || 0}\n`;
+            } else if (d.pickup || d.drop) {
+                text += `*🟢 Pickup:* ${d.pickup || 'N/A'}\n`;
+                text += `*🔴 Drop:* ${d.drop || 'N/A'}\n`;
+                text += `*🛣️ Distance:* ${d.distance || 'N/A'}\n`;
+                text += `-----------------------------------\n`;
+            } else {
+                text += `*🛠️ Service:* ${order.service || 'N/A'}\n`;
+                if (order.location) text += `*📍 Map:* ${order.location}\n`;
+                text += `-----------------------------------\n`;
+            }
+
+            text += `*💰 TOTAL TO COLLECT:* ₹${grandTotal} (${order.payMode || 'COD'})\n`;
+            text += `-----------------------------------\n`;
+            text += `_Please update pickup & delivery status on time._`;
+
+            document.getElementById('wa-text-preview').value = text;
+            let digits = String(order.riderPhone || '').replace(/\D/g, '');
+            if (digits.length === 10) digits = '91' + digits;
+            const targetNum = digits || RIDER_WA_DEFAULT;
+
+            document.getElementById('wa-target-label').innerText = "Dispatching to: +" + targetNum;
+            document.getElementById('btn-wa-direct').onclick = () => {
+                const edited = document.getElementById('wa-text-preview').value;
+                window.open(`https://wa.me/${targetNum}?text=${encodeURIComponent(edited)}`, '_blank');
+            };
+            document.getElementById('wa-preview-modal').classList.remove('hidden');
+        };
+
+        window.closeWaModal = function() {
+            document.getElementById('wa-preview-modal').classList.add('hidden');
+        };
+
+        window.copyWaText = function() {
+            const textArea = document.getElementById('wa-text-preview');
+            textArea.select();
+            navigator.clipboard.writeText(textArea.value);
+            showToast("Receipt copied to clipboard!");
+        };
+
+        checkManagerAuth();
+    </script>
+</body>
+</html>
