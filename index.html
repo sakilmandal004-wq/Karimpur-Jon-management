@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GMDS | Unified Master Zone Command Center</title>
+
+    <meta name="theme-color" content="#10b981">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'] },
+                    colors: {
+                        primary: '#10b981',
+                        primary_dark: '#047857',
+                        dark: '#0f172a',
+                        accent: '#f59e0b',
+                        background: '#f8fafc'
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        select {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 0.7rem center;
+            background-size: 1em;
+        }
+
+        @keyframes slideIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-slide-in { animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+        @keyframes highlightNew {
+            0% { background-color: #dcfce7; }
+            100% { background-color: transparent; }
+        }
+        .new-order-row { animation: highlightNew 4s ease-out forwards; border-left: 4px solid #10b981 !important; }
+
+        .cancelled-row { background-color: #fff1f2 !important; border-left: 4px solid #ef4444 !important; opacity: 0.85; }
+        .completed-row { border-left: 4px solid #10b981 !important; opacity: 0.7; }
+        .ghost-row { background-color: #fffbeb !important; border-left: 4px dashed #f59e0b !important; opacity: 0.85; }
+
+        textarea:focus { outline: none; border-color: #25D366; box-shadow: 0 0 0 4px rgba(37, 211, 102, 0.15); }
+    </style>
+</head>
+<body class="bg-background text-slate-800 font-sans min-h-screen flex flex-col">
+
+    <audio id="orderAlertSound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
+
+    <div id="toast-container" class="fixed top-5 right-5 z-[100000] pointer-events-none flex flex-col gap-3"></div>
+
+    <!-- Zone & Backend Authentication Modal -->
+    <div id="zone-login-modal" class="fixed inset-0 bg-slate-900/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-3xl p-8 shadow-2xl text-center border border-slate-200 animate-slide-in">
+            <div class="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center text-3xl mx-auto mb-4 shadow-inner">
+                <i class="fas fa-shield-halved"></i>
+            </div>
+            <h2 class="text-xl font-black text-slate-800 m-0 mb-1">Zone Manager Access</h2>
+            <p class="text-xs text-slate-500 font-semibold mb-6">Multi-Database Dual Engine Synchronization</p>
+            
+            <div class="space-y-4 text-left">
+                <div>
+                    <label class="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-2">Select Operational Zone ID</label>
+                    <select id="manager-zone-select" class="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-700 outline-none focus:border-emerald-500">
+                        <option value="Jon1">Zone 1 (Jon1)</option>
+                        <option value="Jon2">Zone 2 (Jon2)</option>
+                        <option value="Jon3">Zone 3 (Jon3)</option>
+                        <option value="Jon4">Zone 4 (Jon4)</option>
+                        <option value="Jon5" selected>Zone 5 (Jon5)</option>
+                        <option value="Jon6">Zone 6 (Jon6)</option>
+                        <option value="Fazilnagar">Fazilnagar (Direct)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-2">Zone Security PIN / Token</label>
+                    <input type="password" id="manager-token-input" placeholder="Enter Zone Security PIN" class="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-700 outline-none focus:border-emerald-500">
+                </div>
+
+                <button onclick="authenticateManager()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-4 rounded-2xl text-sm uppercase tracking-wider shadow-lg shadow-emerald-600/30 transition-all cursor-pointer border-none mt-2">
+                    Unlock Zone Command <i class="fas fa-arrow-right ml-2"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rider Assignment Modal -->
+    <div id="assign-rider-modal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 animate-slide-in">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3 mb-4">
+                <div>
+                    <h3 class="font-extrabold text-base text-slate-800 m-0">Assign Delivery Partner</h3>
+                    <p class="text-[11px] text-slate-400 font-bold m-0 mt-0.5" id="assign-order-lbl">Order #--</p>
+                </div>
+                <button onclick="closeAssignModal()" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-500 flex items-center justify-center border-none cursor-pointer">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-[10px] font-black uppercase text-slate-500 mb-1">Rider Name</label>
+                    <input type="text" id="assign-rider-name" placeholder="E.g. Sujon Mia" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-black uppercase text-slate-500 mb-1">Rider 10-Digit WhatsApp Phone</label>
+                    <input type="tel" id="assign-rider-phone" placeholder="E.g. 9876543210" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-black uppercase text-slate-500 mb-1">Vehicle Type</label>
+                    <select id="assign-rider-vehicle" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-emerald-500">
+                        <option value="Bike">🏍️ Bike</option>
+                        <option value="E-Rickshaw (Toto)">🛺 E-Rickshaw (Toto)</option>
+                        <option value="Cycle">🚲 Cycle</option>
+                    </select>
+                </div>
+                <button onclick="submitRiderAssignment()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3.5 rounded-xl text-xs uppercase tracking-wider shadow-md transition-all cursor-pointer border-none mt-2">
+                    <i class="fas fa-check-circle mr-1"></i> Save & Assign Rider
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- WhatsApp Preview Modal -->
+    <div id="wa-preview-modal" class="fixed inset-0 bg-slate-900/70 backdrop-filter backdrop-blur-md z-50 flex items-center justify-center p-4 hidden transition-opacity duration-300">
+        <div class="bg-white w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] animate-slide-in border border-slate-200">
+            <div class="bg-slate-50 p-5 flex items-center justify-between border-b border-slate-200">
+                <div class="flex items-center gap-3">
+                    <div class="w-12 h-12 rounded-full bg-[#25D366]/10 flex items-center justify-center border border-[#25D366]/20">
+                        <i class="fab fa-whatsapp text-[#25D366] text-2xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-extrabold text-base text-slate-800 tracking-wide m-0">WhatsApp Dispatcher</h3>
+                        <p class="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-0.5 m-0">Smart Routing Engine</p>
+                    </div>
+                </div>
+                <button onclick="closeWaModal()" class="w-10 h-10 rounded-full bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-500 transition-colors flex items-center justify-center border border-transparent hover:border-red-100 cursor-pointer">
+                    <i class="fas fa-times text-lg"></i>
+                </button>
+            </div>
+            <div class="p-6 bg-white flex-1 overflow-hidden flex flex-col gap-3">
+                <div class="bg-blue-50 border border-blue-100 text-blue-700 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between gap-2">
+                    <span><i class="fas fa-satellite-dish animate-pulse mr-1"></i> Complete order routing loaded</span>
+                    <span class="font-mono text-[10px] bg-blue-200 px-2 py-0.5 rounded text-blue-800" id="wa-target-label">Dispatching to: -</span>
+                </div>
+                <textarea id="wa-text-preview" class="w-full flex-1 min-h-[260px] p-5 text-[13px] font-mono bg-slate-50 text-slate-700 border-2 border-slate-200 rounded-2xl resize-none shadow-inner leading-relaxed" spellcheck="false"></textarea>
+            </div>
+            <div class="p-5 bg-slate-50 border-t border-slate-200 flex gap-3 shrink-0">
+                <button onclick="copyWaText()" class="w-1/3 py-4 bg-white border-2 border-slate-200 text-slate-700 rounded-2xl text-sm font-extrabold transition-all hover:bg-slate-100 hover:border-slate-300 flex justify-center items-center gap-2 cursor-pointer active:scale-95">
+                    <i class="fas fa-copy text-slate-400"></i> Copy
+                </button>
+                <button id="btn-wa-direct" class="w-2/3 py-4 bg-[#25D366] text-white rounded-2xl text-sm font-black uppercase tracking-wider transition-all shadow-lg shadow-[#25D366]/30 hover:bg-[#20b958] flex justify-center items-center gap-2 cursor-pointer active:scale-95 border-none">
+                    <i class="fab fa-whatsapp text-xl"></i> Send To Rider
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="bg-dark text-white sticky top-0 z-40 shadow-xl border-b border-white/10">
+        <div class="max-w-[98%] mx-auto px-4 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-primary_dark flex items-center justify-center shadow-inner border border-white/20 relative">
+                    <i class="fas fa-satellite-dish text-2xl text-white"></i>
+                    <div class="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full border-2 border-dark animate-pulse"></div>
+                </div>
+                <div>
+                    <h1 class="text-lg font-black tracking-wider text-white m-0 leading-tight">GMDS MASTER CONTROL</h1>
+                    <p class="text-[10px] text-emerald-400 font-bold tracking-widest uppercase m-0 mt-0.5 flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Locked Zone: <span id="header-zone-label" class="text-amber-300 font-black px-1.5 py-0.5 bg-white/10 rounded">--</span>
+                    </p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-4">
+                <div class="text-right mr-2 hidden md:block border-r border-slate-700 pr-5">
+                    <p class="text-[9px] text-slate-400 font-bold uppercase tracking-wider m-0">Live System Time</p>
+                    <p class="text-sm font-mono text-emerald-300 font-bold m-0" id="live-clock">--:--:--</p>
+                </div>
+                <div class="hidden md:flex items-center bg-slate-800/80 rounded-2xl border border-slate-700 p-1 shadow-inner">
+                    <div class="px-4 py-1.5 text-center border-r border-slate-700">
+                        <p class="text-[9px] text-slate-400 font-bold uppercase m-0">Orders</p>
+                        <p class="text-sm font-black text-white m-0" id="stat-total">0</p>
+                    </div>
+                    <div class="px-4 py-1.5 text-center border-r border-slate-700">
+                        <p class="text-[9px] text-emerald-400 font-bold uppercase m-0">Paid</p>
+                        <p class="text-sm font-black text-emerald-400 m-0" id="stat-paid">0</p>
+                    </div>
+                    <div class="px-4 py-1.5 text-center">
+                        <p class="text-[9px] text-amber-400 font-bold uppercase m-0">Pending</p>
+                        <p class="text-sm font-black text-amber-400 m-0" id="stat-pending">0</p>
+                    </div>
+                </div>
+                <button onclick="fetchZoneOrders(true)" class="bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 px-3.5 py-2.5 rounded-xl font-bold text-xs transition-colors cursor-pointer">
+                    <i class="fas fa-rotate"></i> Sync
+                </button>
+                <button onclick="logoutManager()" class="bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30 px-4 py-2.5 rounded-xl font-bold text-xs transition-colors cursor-pointer">
+                    <i class="fas fa-right-from-bracket mr-1"></i> Switch Zone
+                </button>
+            </div>
+        </div>
+
+        <!-- Mobile stats strip -->
+        <div class="md:hidden border-t border-white/10 px-4 py-2 flex items-center justify-around text-center bg-slate-900/50">
+            <div><p class="text-[9px] text-slate-400 font-bold uppercase m-0">Total</p><p class="text-sm font-black text-white m-0" id="stat-total-m">0</p></div>
+            <div><p class="text-[9px] text-emerald-400 font-bold uppercase m-0">Paid</p><p class="text-sm font-black text-emerald-400 m-0" id="stat-paid-m">0</p></div>
+            <div><p class="text-[9px] text-amber-400 font-bold uppercase m-0">Pending</p><p class="text-sm font-black text-amber-400 m-0" id="stat-pending-m">0</p></div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-[98%] w-full mx-auto px-2 py-6">
+        <div class="bg-white rounded-3xl shadow-md border border-slate-200 overflow-hidden flex flex-col h-[calc(100vh-140px)]">
+            
+            <!-- Filter Bar -->
+            <div class="px-6 py-4 border-b border-slate-100 flex flex-col lg:flex-row items-center justify-between gap-4 bg-slate-50 shrink-0">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center border border-emerald-200 shadow-sm">
+                        <i class="fas fa-boxes-packing"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-base font-black text-slate-800 m-0 leading-tight">Zone Ecosystem Stream <span class="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-black uppercase ml-1" id="sync-status-badge">Dual DB Sync</span></h2>
+                        <p class="text-[10px] text-slate-500 font-extrabold mt-0.5 m-0 uppercase tracking-wide" id="db-chips">Connecting databases...</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-1.5 bg-slate-200/50 p-1.5 rounded-xl border border-slate-200 overflow-x-auto max-w-full" id="filter-bar">
+                    <button class="filter-btn px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap active bg-white shadow-sm text-slate-800" data-filter="all">All <span id="fc-all" class="opacity-60"></span></button>
+                    <button class="filter-btn px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap text-slate-500 hover:bg-white/50" data-filter="pending">Pending <span id="fc-pending" class="opacity-60"></span></button>
+                    <button class="filter-btn px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap text-slate-500 hover:bg-white/50" data-filter="active">Active <span id="fc-active" class="opacity-60"></span></button>
+                    <button class="filter-btn px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap text-slate-500 hover:bg-white/50" data-filter="delivered">Delivered <span id="fc-delivered" class="opacity-60"></span></button>
+                    <button class="filter-btn px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap text-slate-500 hover:bg-white/50" data-filter="cancelled">Cancelled <span id="fc-cancelled" class="opacity-60"></span></button>
+                </div>
+            </div>
+
+            <!-- Orders Table -->
+            <div class="overflow-auto flex-1 bg-white p-2">
+                <table class="w-full text-left border-collapse whitespace-nowrap lg:whitespace-normal">
+                    <thead class="sticky top-0 z-10 bg-slate-100/90 backdrop-blur-sm rounded-xl">
+                        <tr class="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                            <th class="py-4 px-5 rounded-tl-xl w-40">Order ID & Time</th>
+                            <th class="py-4 px-5">Customer & Address</th>
+                            <th class="py-4 px-5">Service / Details (Hotel, Pickup, Drop)</th>
+                            <th class="py-4 px-5 w-48">Bill & Payment</th>
+                            <th class="py-4 px-5 w-48 text-center">Live Status</th>
+                            <th class="py-4 px-5 text-center w-40 rounded-tr-xl">Dispatch / Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="managerOrdersTable" class="divide-y divide-slate-100 text-sm">
+                        <tr>
+                            <td colspan="6" class="py-24 text-center">
+                                <i class="fas fa-circle-notch fa-spin text-4xl text-emerald-600 mb-4 block"></i>
+                                <h3 class="text-slate-800 font-black text-lg m-0">Authenticating Zone...</h3>
+                                <p class="text-slate-400 font-bold text-xs mt-1">Please unlock your operational zone to sync real-time orders</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // ==================== FIREBASE CONFIGURATION (DUAL DATABASE) ====================
+        const coreConfig = {
+            apiKey: "AIzaSyB5QfUxUOZtQnTuGU-PPR-VdBof2ljO1i0",
+            authDomain: "gmds-super-app.firebaseapp.com",
+            databaseURL: "https://gmds-super-app-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "gmds-super-app",
+            storageBucket: "gmds-super-app.firebasestorage.app",
+            messagingSenderId: "872760042776",
+            appId: "1:872760042776:web:5c64e3a6ce4da6229faa6d"
+        };
+        firebase.initializeApp(coreConfig);
+        const coreDb = firebase.database();
+
+        const riderConfig = {
+            apiKey: "AIzaSyCTfCfliKdVUM-sq528_VpxJoJaaNWtZRM",
+            authDomain: "gmds-rider.firebaseapp.com",
+            databaseURL: "https://gmds-rider-default-rtdb.firebaseio.com",
+            projectId: "gmds-rider",
+            storageBucket: "gmds-rider.firebasestorage.app",
+            messagingSenderId: "464883988509",
+            appId: "1:464883988509:web:b83fa6199bb9f128c7aef4"
+        };
+        const riderApp = firebase.initializeApp(riderConfig, "RiderApp");
+        const riderDb = riderApp.database();
+
+        // ==================== STATE & URL PARAMS ====================
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlZone = urlParams.get('zone');
+        const highlightOrderId = urlParams.get('orderId');
+
+        let currentZone = urlZone || localStorage.getItem('gmds_manager_zone') || '';
+        let managerToken = localStorage.getItem('gmds_manager_token') || '';
+
+        const DB = {
+            core:  { data: {}, loaded: false, error: null },
+            rider: { data: {}, loaded: false, error: null }
+        };
+        let globalOrdersCache = [];
+        const knownUids = new Set();
+        const lastSeen = new Map();
+        const adminDeleted = new Set();
+        const ghostNotified = new Set();
+        let baselineDone = false;
+        let unreadNewOrders = 0;
+        let currentFilter = 'all';
+        let assigningOrder = null;
+
+        const RIDER_WA_DEFAULT = "916297474412";
+        const STATUS_OPTIONS = ['Pending', 'Confirmed', 'Accepted', 'PickedUp', 'Out for Delivery', 'Delivered', 'Cancelled'];
+
+        const esc = v => String(v === undefined || v === null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const str = v => (v === undefined || v === null) ? '' : String(v).trim();
+        const pick = (...a) => a.find(x => x !== undefined && x !== null && x !== '');
+        const toArray = v => Array.isArray(v) ? v.filter(Boolean) : (v && typeof v === 'object' ? Object.values(v).filter(Boolean) : []);
+
+        setInterval(() => {
+            document.getElementById('live-clock').innerText = new Date().toLocaleTimeString('en-IN', { hour12: true });
+        }, 1000);
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const bgClass = type === 'error' ? 'bg-red-600' : 'bg-slate-800';
+            const icon = type === 'error' ? 'fa-triangle-exclamation text-red-200' : 'fa-check-circle text-emerald-400';
+            toast.className = `${bgClass} text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 text-xs font-bold transition-all duration-300 border border-white/10`;
+            toast.innerHTML = `<i class="fas ${icon} text-lg"></i> <span>${esc(message)}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 3500);
+        }
+
+        function playAlertSound() {
+            const audio = document.getElementById('orderAlertSound');
+            if (audio) { audio.currentTime = 0; audio.play().catch(() => {}); }
+        }
+
+        document.body.addEventListener('click', () => {
+            const a = document.getElementById('orderAlertSound');
+            if (!a) return;
+            a.muted = true;
+            a.play().then(() => { a.pause(); a.currentTime = 0; a.muted = false; }).catch(() => { a.muted = false; });
+        }, { once: true });
+
+        // ==================== AUTHENTICATION ====================
+        function checkManagerAuth() {
+            if (currentZone && managerToken) {
+                document.getElementById('zone-login-modal').style.display = 'none';
+                document.getElementById('header-zone-label').innerText = currentZone;
+                startListeningDatabases();
+            } else {
+                if (urlZone) document.getElementById('manager-zone-select').value = urlZone;
+                document.getElementById('zone-login-modal').style.display = 'flex';
+            }
+        }
+
+        window.authenticateManager = function() {
+            const zone = document.getElementById('manager-zone-select').value;
+            const token = document.getElementById('manager-token-input').value.trim();
+
+            if (!token) {
+                showToast("Please enter Zone Security PIN!", "error");
+                return;
+            }
+
+            currentZone = zone;
+            managerToken = token;
+
+            localStorage.setItem('gmds_manager_zone', zone);
+            localStorage.setItem('gmds_manager_token', token);
+
+            checkManagerAuth();
+        };
+
+        window.logoutManager = function() {
+            localStorage.removeItem('gmds_manager_zone');
+            localStorage.removeItem('gmds_manager_token');
+            window.location.href = window.location.pathname;
+        };
+
+        // ==================== REAL-TIME DUAL DATABASE LISTENERS ====================
+        function listen(ref, key, label) {
+            ref.on('value', snap => {
+                DB[key].data = snap.val() || {};
+                DB[key].loaded = true;
+                DB[key].error = null;
+                processMergedData();
+            }, err => {
+                DB[key].loaded = true;
+                DB[key].error = err ? err.message : String(err);
+                showToast(`${label} sync error`, 'error');
+                processMergedData();
+            });
+        }
+
+        function startListeningDatabases() {
+            listen(coreDb.ref('all_orders'), 'core', 'Core');
+            listen(riderDb.ref('delivery_orders'), 'rider', 'Rider');
+        }
+
+        window.fetchZoneOrders = function(manual = false) {
+            processMergedData();
+            if (manual) showToast(`Synced orders for ${currentZone}`);
+        };
+
+        // ==================== ZONE FILTERING & PROCESSING ====================
+        function matchesCurrentZone(o) {
+            const z = str(pick(o.serviceZone, o.deliveryZone, o.managerZone, o.zone, dZone(o)));
+            if (!z) return true; // Include unassigned orders gracefully
+            return z.toLowerCase() === currentZone.toLowerCase();
+        }
+
+        function dZone(o) {
+            const d = o.details || {};
+            return d.zone || d.deliveryZone || '';
+        }
+
+        function statusOf(o) { return str(o.status) || str(o.riderStatus) || 'Pending'; }
+        function isCancelledOrder(o) {
+            return o.isCancelled === true || str(o.isCancelled).toLowerCase() === 'true' || o.cancelled === true || str(o.status).toLowerCase().includes('cancel');
+        }
+        function statusKey(o) {
+            if (isCancelledOrder(o)) return 'cancelled';
+            const norm = s => s.toLowerCase().replace(/[\s_-]/g, '');
+            const t = norm(statusOf(o));
+            const done = ['delivered', 'completed', 'complete', 'done'];
+            if (done.includes(t)) return 'delivered';
+            if (t === '' || ['pending', 'new', 'placed'].includes(t)) return 'pending';
+            return 'active';
+        }
+
+        function orderTime(o) {
+            const c = Number(o.createdAt);
+            if (c > 1e11) return c;
+            const m = str(o.orderId || o.id).match(/\d{12,13}/);
+            if (m) return Number(m[0]);
+            const ts = Number(o.timestamp);
+            if (ts > 1e11) return ts;
+            const d = Date.parse(str(o.time) || str(o.timestamp));
+            return isNaN(d) ? 0 : d;
+        }
+
+        function dateText(o, t) {
+            const a = str(o.time); if (a) return a;
+            const b = str(o.timestamp); if (b && isNaN(Number(b))) return b;
+            return t ? new Date(t).toLocaleString('en-IN') : 'Time Unknown';
+        }
+
+        function getKind(o) {
+            if (o.type === 'FoodOrder' || o.items) return 'food';
+            if (o.dbRefType === 'rider' || o.type === 'DeliveryRide' || o.type === 'Parcel Delivery' || o.details) return 'ride';
+            if (o.type === 'HouseService' || o.professional) return 'house';
+            if (o.type === 'DigitalSeba' || o.category) return 'seba';
+            return 'other';
+        }
+
+        function addFrom(src, type, path, list) {
+            if (!src || typeof src !== 'object') return;
+            Object.keys(src).forEach(key => {
+                const v = src[key];
+                if (v === null || typeof v !== 'object') return;
+                const item = { ...v, id: key, uid: type + ':' + key, dbRefType: type, dbPath: path };
+                if (matchesCurrentZone(item)) {
+                    list.push(item);
+                }
+            });
+        }
+
+        function processMergedData() {
+            const list = [];
+            addFrom(DB.core.data, 'core', 'all_orders', list);
+            addFrom(DB.rider.data, 'rider', 'delivery_orders', list);
+
+            const coreCount = list.filter(o => o.dbRefType === 'core').length;
+            const riderCount = list.length - coreCount;
+
+            const present = new Set(list.map(o => o.uid));
+            list.forEach(o => lastSeen.set(o.uid, o));
+            lastSeen.forEach((o, uid) => {
+                if (present.has(uid)) { ghostNotified.delete(uid); return; }
+                if (adminDeleted.has(uid)) { lastSeen.delete(uid); return; }
+                if (!matchesCurrentZone(o)) return;
+                list.push({ ...o, ghost: true });
+            });
+
+            let newCount = 0;
+            if (DB.core.loaded && DB.rider.loaded) {
+                if (!baselineDone) {
+                    list.forEach(o => knownUids.add(o.uid));
+                    baselineDone = true;
+                } else {
+                    list.forEach(o => {
+                        if (!o.ghost && !knownUids.has(o.uid)) { knownUids.add(o.uid); newCount++; }
+                    });
+                }
+            }
+            if (newCount > 0) {
+                unreadNewOrders += newCount;
+                playAlertSound();
+                showToast(`🔔 ${newCount} New Order(s) in ${currentZone}!`);
+            }
+
+            list.sort((a, b) => (orderTime(b) - orderTime(a)) || String(b.uid).localeCompare(String(a.uid)));
+            globalOrdersCache = list;
+
+            updateChips(coreCount, riderCount);
+            updateStats(list);
+            renderOrdersTable();
+        }
+
+        function updateChips(coreCount, riderCount) {
+            document.getElementById('db-chips').innerText = `Zone: ${currentZone} • Core: ${coreCount} | Rider: ${riderCount}`;
+        }
+
+        function updateStats(orders) {
+            const total = orders.length;
+            const paid = orders.filter(o => str(o.payMode).toUpperCase() === 'ONLINE').length;
+            const pending = orders.filter(o => statusKey(o) === 'pending').length;
+            ['', '-m'].forEach(sfx => {
+                const tEl = document.getElementById('stat-total' + sfx);
+                const pEl = document.getElementById('stat-paid' + sfx);
+                const peEl = document.getElementById('stat-pending' + sfx);
+                if (tEl) tEl.innerText = total;
+                if (pEl) pEl.innerText = paid;
+                if (peEl) peEl.innerText = pending;
+            });
+        }
+
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', e => {
+                document.querySelectorAll('.filter-btn').forEach(b => {
+                    b.className = "filter-btn px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap text-slate-500 hover:bg-white/50";
+                });
+                e.currentTarget.className = "filter-btn px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap active bg-white shadow-sm text-slate-800";
+                currentFilter = e.currentTarget.getAttribute('data-filter');
+                renderOrdersTable();
+            });
+        });
+
+        function matchesFilter(order, f) {
+            if (f === 'all') return true;
+            return statusKey(order) === f;
+        }
+
+        // ==================== TABLE RENDERING ====================
+        function renderOrdersTable() {
+            const table = document.getElementById('managerOrdersTable');
+
+            ['all', 'pending', 'active', 'delivered', 'cancelled'].forEach(f => {
+                const el = document.getElementById('fc-' + f);
+                if (el) el.innerText = globalOrdersCache.filter(o => matchesFilter(o, f)).length;
+            });
+
+            if (!DB.core.loaded && !DB.rider.loaded) return;
+
+            const filtered = globalOrdersCache.filter(o => matchesFilter(o, currentFilter));
+
+            if (filtered.length === 0) {
+                table.innerHTML = `<tr><td colspan="6" class="py-16 text-center text-slate-400 font-bold"><div class="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3"><i class="fas fa-box-open text-3xl"></i></div> No orders found for ${esc(currentZone)} in this filter.</td></tr>`;
+                return;
+            }
+
+            const nowMs = Date.now();
+            table.innerHTML = filtered.map(order => {
+                try { return renderRow(order, nowMs); }
+                catch (err) {
+                    return `<tr class="bg-red-50"><td colspan="6" class="py-3 px-5 text-xs font-bold text-red-600">Error rendering order #${esc(order.orderId || order.id)}</td></tr>`;
+                }
+            }).join('');
+        }
+
+        function renderRow(order, nowMs) {
+            const kind = getKind(order);
+            const d = (order.details && typeof order.details === 'object') ? order.details : {};
+            const t = orderTime(order);
+            const isNew = !order.ghost && t > 0 && (nowMs - t) < 60000;
+            const sk = statusKey(order);
+            const currentStatus = statusOf(order);
+
+            let sType = "Service";
+            let sIconCls = "fa-asterisk";
+            let sIconStyle = "text-slate-400 bg-slate-50 border-slate-100";
+            let serviceDetailsHTML = "";
+
+            if (kind === 'food') {
+                sType = "Food Delivery";
+                sIconCls = "fa-utensils"; sIconStyle = "text-orange-500 bg-orange-50 border-orange-100";
+                const items = toArray(order.items);
+                const hotels = [...new Set(items.map(i => i.hotel || 'Restaurant'))].join(', ');
+                serviceDetailsHTML = `
+                    <div class="text-[11px] font-extrabold text-orange-600 mb-1"><i class="fas fa-store mr-1"></i> ${esc(hotels)}</div>
+                    <div class="text-[11px] text-slate-700 font-bold bg-slate-100 px-2 py-1 rounded border border-slate-200">
+                        ${items.map(i => `• ${esc(i.name)} (x${i.qty || 1})`).join('<br>')}
+                    </div>
+                `;
+            } else if (kind === 'ride') {
+                const rideType = str(pick(d.type, order.type, "Ride / Parcel"));
+                sType = rideType;
+                sIconCls = rideType.toLowerCase().includes('parcel') ? "fa-box" : "fa-motorcycle";
+                sIconStyle = "text-blue-500 bg-blue-50 border-blue-100";
+                const pickupLoc = str(pick(d.pickup, order.pickup, 'Not provided'));
+                const dropLoc = str(pick(d.drop, order.drop, 'Not provided'));
+                const dist = str(pick(d.distance, order.distance, ''));
+                serviceDetailsHTML = `
+                    <div class="text-[11px] text-slate-800 font-semibold mb-0.5">🟢 <b>Pickup:</b> ${esc(pickupLoc)}</div>
+                    <div class="text-[11px] text-slate-800 font-semibold mb-1">🔴 <b>Drop:</b> ${esc(dropLoc)}</div>
+                    ${dist ? `<span class="text-[9px] font-bold text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded"><i class="fas fa-route"></i> ${esc(dist)}</span>` : ''}
+                `;
+            } else {
+                sType = str(order.service) || str(order.type) || "Service Booking";
+                sIconCls = "fa-tools"; sIconStyle = "text-emerald-500 bg-emerald-50 border-emerald-100";
+                serviceDetailsHTML = `<div class="text-[11px] text-slate-700 font-bold">${esc(order.problem || order.category || 'Booking')}</div>`;
+            }
+
+            const totalAmount = pick(order.grandTotal, order.totalFare, d.totalFare, order.price, order.total, 0);
+            const payUI = str(order.payMode).toUpperCase() === 'ONLINE'
+                ? `<div class="text-base font-black text-slate-800">₹${esc(totalAmount)}</div><span class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] px-2 py-0.5 rounded font-black uppercase">Paid Online</span>`
+                : `<div class="text-base font-black text-slate-800">₹${esc(totalAmount)}</div><span class="bg-amber-50 text-amber-700 border border-amber-200 text-[9px] px-2 py-0.5 rounded font-black uppercase">COD / Cash</span>`;
+
+            let rowClass = "hover:bg-slate-50 transition-colors border-b border-slate-100 ";
+            if (order.ghost) rowClass += "ghost-row ";
+            else {
+                if (isNew) rowClass += "new-order-row ";
+                if (sk === 'cancelled') rowClass += "cancelled-row ";
+                if (sk === 'delivered') rowClass += "completed-row ";
+            }
+
+            const rName = order.riderName || '';
+            const rPhone = order.riderPhone || '';
+            const riderUI = rName
+                ? `<div class="mt-2 bg-indigo-50 border border-indigo-200 rounded-xl p-1.5 text-center"><div class="text-[10px] font-black text-indigo-800"><i class="fas fa-motorcycle mr-1"></i>${esc(rName)}</div><div class="text-[9px] text-indigo-600 font-bold">${esc(rPhone)}</div></div>`
+                : `<button onclick="openAssignModal('${esc(order.uid)}')" class="mt-2 w-full bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-600 border border-dashed border-slate-300 rounded-xl py-1 text-[10px] font-extrabold cursor-pointer"><i class="fas fa-user-plus mr-1"></i>Assign Rider</button>`;
+
+            const mapLink = getMapLink(order);
+
+            return `
+                <tr class="${rowClass}">
+                    <td class="py-4 px-5 align-top">
+                        <div class="font-mono text-sm font-black text-slate-800">#${esc(order.orderId || order.id)}</div>
+                        <div class="text-[10px] text-slate-400 mt-1 font-bold"><i class="far fa-clock"></i> ${esc(dateText(order, t))}</div>
+                        <span class="inline-block mt-1 text-[9px] font-black bg-slate-100 text-slate-600 px-2 py-0.5 rounded uppercase">Zone: ${esc(currentZone)}</span>
+                    </td>
+                    <td class="py-4 px-5 align-top">
+                        <div class="font-extrabold text-sm text-slate-800">${esc(order.user || order.customer || 'Customer')}</div>
+                        <a href="tel:${esc(order.phone)}" class="text-xs font-bold text-blue-600 hover:underline mt-0.5 inline-flex items-center gap-1"><i class="fas fa-phone-alt text-[10px]"></i> ${esc(order.phone || 'N/A')}</a>
+                        <div class="text-[11px] text-slate-600 font-medium mt-1 max-w-xs whitespace-normal">${esc(order.address || d.pickup || '')}</div>
+                        ${mapLink !== 'Not Provided' ? `<a href="${esc(mapLink)}" target="_blank" class="inline-flex items-center gap-1 text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded mt-1.5 no-underline border border-emerald-100"><i class="fas fa-location-dot"></i> GPS Map Location</a>` : ''}
+                    </td>
+                    <td class="py-4 px-5 align-top whitespace-normal max-w-sm">
+                        <div class="font-bold text-xs text-slate-800 flex items-center gap-2 mb-1.5">
+                            <div class="w-6 h-6 rounded-lg flex items-center justify-center border ${sIconStyle}"><i class="fas ${sIconCls}"></i></div>
+                            ${esc(sType)}
+                        </div>
+                        ${serviceDetailsHTML}
+                    </td>
+                    <td class="py-4 px-5 align-top">
+                        ${payUI}
+                    </td>
+                    <td class="py-4 px-5 align-top text-center">
+                        <select data-uid="${esc(order.uid)}" onchange="updateOrderStatus(this)" class="w-full bg-white border-2 border-slate-200 rounded-xl text-[11px] font-bold px-3 py-2 outline-none cursor-pointer focus:border-emerald-500">
+                            ${STATUS_OPTIONS.map(opt => `<option value="${esc(opt)}" ${opt.toLowerCase() === currentStatus.toLowerCase() ? 'selected' : ''}>${esc(opt.toUpperCase())}</option>`).join('')}
+                        </select>
+                        ${riderUI}
+                    </td>
+                    <td class="py-4 px-5 align-top text-center space-y-1.5">
+                        <button onclick="previewWhatsApp('${esc(order.uid)}')" class="w-full bg-[#25D366] text-white px-3 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm hover:bg-[#20b958] cursor-pointer border-none">
+                            <i class="fab fa-whatsapp text-sm"></i> WhatsApp
+                        </button>
+                        <button onclick="openAssignModal('${esc(order.uid)}')" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl font-bold text-[10px] uppercase flex items-center justify-center gap-1.5 cursor-pointer border-none">
+                            <i class="fas fa-motorcycle"></i> Rider
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }
+
+        // ==================== ACTIONS ====================
+        const findOrder = uid => globalOrdersCache.find(o => o.uid === uid);
+
+        window.updateOrderStatus = async function(selectElement) {
+            const order = findOrder(selectElement.dataset.uid);
+            if (!order) return;
+            const newStatus = selectElement.value;
+
+            try {
+                const db = order.dbRefType === 'rider' ? riderDb : coreDb;
+                await db.ref(`${order.dbPath}/${order.id}`).update({
+                    status: newStatus,
+                    riderStatus: newStatus,
+                    isCancelled: newStatus === 'Cancelled',
+                    statusUpdatedAt: Date.now()
+                });
+                showToast(`Order #${order.orderId || order.id} ➔ ${newStatus}`);
+            } catch (e) {
+                showToast("Failed to update status", "error");
+            }
+        };
+
+        window.openAssignModal = function(uid) {
+            const order = findOrder(uid);
+            if (!order) return;
+            assigningOrder = order;
+            document.getElementById('assign-order-lbl').innerText = `Order #${order.orderId || order.id} (${currentZone})`;
+            document.getElementById('assign-rider-name').value = order.riderName || '';
+            document.getElementById('assign-rider-phone').value = order.riderPhone || '';
+            document.getElementById('assign-rider-modal').classList.remove('hidden');
+        };
+
+        window.closeAssignModal = function() {
+            document.getElementById('assign-rider-modal').classList.add('hidden');
+            assigningOrder = null;
+        };
+
+        window.submitRiderAssignment = async function() {
+            if (!assigningOrder) return;
+            const rName = document.getElementById('assign-rider-name').value.trim();
+            const rPhone = document.getElementById('assign-rider-phone').value.trim().replace(/\D/g, '').slice(-10);
+            const rVeh = document.getElementById('assign-rider-vehicle').value;
+
+            if (!rName || rPhone.length !== 10) {
+                showToast("Enter valid Rider Name and 10-digit Phone!", "error");
+                return;
+            }
+
+            try {
+                const db = assigningOrder.dbRefType === 'rider' ? riderDb : coreDb;
+                await db.ref(`${assigningOrder.dbPath}/${assigningOrder.id}`).update({
+                    status: 'Accepted',
+                    riderStatus: 'Accepted',
+                    riderName: rName,
+                    riderPhone: rPhone,
+                    riderVehicle: rVeh
+                });
+                showToast(`Rider ${rName} assigned successfully!`);
+                closeAssignModal();
+            } catch (e) {
+                showToast("Failed to assign rider", "error");
+            }
+        };
+
+        // ==================== SMART WHATSAPP DISPATCHER ====================
+        function getMapLink(order) {
+            if (str(order.gpsLocation).includes('http')) return order.gpsLocation;
+            if (str(order.location).includes('http')) return order.location;
+            if (order.lat && order.lng) return `https://maps.google.com/?q=${order.lat},${order.lng}`;
+            return 'Not Provided';
+        }
+
+        window.previewWhatsApp = function(uid) {
+            const order = findOrder(uid);
+            if (!order) return;
+
+            const text = generateWhatsAppText(order);
+            document.getElementById('wa-text-preview').value = text;
+
+            let digits = str(order.riderPhone || '').replace(/\D/g, '');
+            if (digits.length === 10) digits = '91' + digits;
+            const targetNum = digits || RIDER_WA_DEFAULT;
+
+            document.getElementById('wa-target-label').innerText = "Dispatching to: +" + targetNum;
+            document.getElementById('btn-wa-direct').onclick = () => {
+                const edited = document.getElementById('wa-text-preview').value;
+                window.open(`https://wa.me/${targetNum}?text=${encodeURIComponent(edited)}`, '_blank');
+            };
+            document.getElementById('wa-preview-modal').classList.remove('hidden');
+        };
+
+        window.closeWaModal = function() {
+            document.getElementById('wa-preview-modal').classList.add('hidden');
+        };
+
+        window.copyWaText = function() {
+            const textArea = document.getElementById('wa-text-preview');
+            textArea.select();
+            document.execCommand('copy');
+            showToast("Receipt copied to clipboard!");
+        };
+
+        function generateWhatsAppText(order) {
+            let text = "";
+            const oId = order.orderId || order.id;
+            const mapLink = getMapLink(order);
+            const kind = getKind(order);
+            const d = (order.details && typeof order.details === 'object') ? order.details : {};
+            const SEP = `-----------------------------------\n`;
+
+            if (kind === 'food') {
+                const items = toArray(order.items);
+                text += `*🚀 GMDS FOOD DISPATCH - [Zone: ${currentZone}]*\n`;
+                text += `*🆔 Order ID:* #${oId}\n` + SEP;
+
+                text += `*🏪 HOTEL / RESTAURANT(S):*\n`;
+                [...new Set(items.map(i => i.hotel || 'Partner Restaurant'))].forEach(hotel => {
+                    text += `• *${hotel}*\n`;
+                });
+                text += SEP;
+
+                text += `*🔴 CUSTOMER DROP-OFF:*\n`;
+                text += `*👤 Customer:* ${order.user || order.customer || 'N/A'}\n`;
+                text += `*📞 Phone:* ${order.phone || 'N/A'}\n`;
+                text += `*🏠 Address:* ${order.address || 'N/A'}\n`;
+                text += `*📍 GPS Map:* ${mapLink}\n` + SEP;
+
+                text += `*🛒 ORDER ITEMS:*\n`;
+                items.forEach(it => {
+                    text += `• *${it.name}* (Qty: ${it.qty || 1} × ₹${it.price || 0}) — _${it.hotel || 'Hotel'}_\n`;
+                });
+                text += SEP;
+
+                text += `*💵 Subtotal:* ₹${order.subtotal || 0}\n`;
+                text += `*🛵 Delivery Charge:* ₹${order.deliveryFee || 0}\n`;
+                text += `*💰 TOTAL TO COLLECT:* ₹${pick(order.grandTotal, order.total, order.price, 0)} (${order.payMode || 'COD'})\n`;
+                text += SEP + `_Please pick up and deliver on time._`;
+            } else if (kind === 'ride') {
+                const sType = str(pick(d.type, order.type, 'RIDE BOOKING'));
+                text += `*🚀 GMDS DISPATCH - [Zone: ${currentZone}]*\n`;
+                text += `*🆔 Order ID:* #${oId}\n` + SEP;
+                text += `*👤 Customer:* ${order.customer || order.user || 'N/A'}\n`;
+                text += `*📞 Phone:* ${order.phone || 'N/A'}\n` + SEP;
+
+                const pickupLoc = pick(d.pickup, order.pickup, order.pickupLocation, 'N/A');
+                const dropLoc = pick(d.drop, order.drop, order.dropLocation, 'N/A');
+                const dist = pick(d.distance, order.distance, 'N/A');
+
+                text += `*🟢 PICKUP LOCATION:*\n${pickupLoc}\n\n`;
+                text += `*🔴 DROP-OFF LOCATION:*\n${dropLoc}\n\n`;
+                if (dist) text += `*🛣️ Distance:* ${dist}\n`;
+
+                text += SEP;
+                text += `*💰 TOTAL FARE TO COLLECT:* ₹${pick(d.totalFare, order.totalFare, order.price, order.grandTotal, 0)} (${order.payMode || 'COD'})\n`;
+                text += SEP + `_Please complete trip on time._`;
+            } else {
+                text += `*🚀 GMDS SERVICE DISPATCH - [Zone: ${currentZone}]*\n`;
+                text += `*🆔 Order ID:* #${oId}\n` + SEP;
+                text += `*👤 Customer:* ${order.customer || order.user || 'N/A'}\n`;
+                text += `*📞 Phone:* ${order.phone || 'N/A'}\n`;
+                text += `*📍 Map Link:* ${mapLink}\n` + SEP;
+                text += `*🛠️ Service:* ${order.service || order.problem || 'Booking'}\n`;
+                text += `*💰 AMOUNT:* ₹${pick(order.grandTotal, order.total, order.price, 0)} (${order.payMode || 'COD'})\n`;
+                text += SEP + `_Please process accordingly._`;
+            }
+
+            return text.trim();
+        }
+
+        checkManagerAuth();
+    </script>
+</body>
+</html>
